@@ -18,7 +18,9 @@ Please follow your course’s academic integrity policy and complete your own wo
 
 ## License
 
-Unless otherwise stated, the code and personal notes in this repository are released under the MIT License.
+Unless otherwise noted, original code and personal notes authored for this repository are licensed under the MIT License. See the root [LICENSE](LICENSE).
+
+Some files may include third-party or instructor-provided code with their own copyright notices or license terms. For those files, the file header or any more specific license notice takes precedence over the repository-wide MIT license.
 
 Reports, figures, and course-related materials may contain content derived from course instructions or references, and should be used for educational purposes only.
 
