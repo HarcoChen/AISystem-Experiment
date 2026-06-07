@@ -1,6 +1,9 @@
 # xjtu-ai-system-experiments
 
 Experiment code and reports for the AI System Experiment course at XJTU 2026 Summer.
+For class notes and reminders,check [AI Wiki](https://xjtu-ai.github.io/course/AiSys/system1/SystemforAI-1%20深度神经网络基础与计算框架/).
+ 
+访问[AI学组](https://xjtu-ai.github.io/course/AiSys/system1/SystemforAI-1%20深度神经网络基础与计算框架/)以获取复习提纲和笔记。
 
 ## Disclaimer
 
