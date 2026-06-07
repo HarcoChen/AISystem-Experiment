@@ -1,0 +1,9 @@
+torch
+torchvision
+numpy
+matplotlib
+tqdm
+Pillow
+eagerpy
+foolbox
+opencv-python

@@ -1,0 +1,28 @@
+experimentName: MNIST_NAS_CLI
+
+trialConcurrency: 5
+maxTrialNumber: 20
+
+trainingService:
+  platform: local
+  useActiveGpu: true
+
+searchSpace:
+  conv_type:
+    _type: choice
+    _value: ["conv", "depthwise"]
+
+  dropout:
+    _type: choice
+    _value: [0.25, 0.5, 0.7]
+
+  fc_size:
+    _type: choice
+    _value: [128, 256, 512]
+
+trialCommand: python main.py
+trialCodeDirectory: .
+
+tuner:
+  name: Random
+  classArgs: {}

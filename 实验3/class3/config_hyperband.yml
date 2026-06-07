@@ -1,0 +1,21 @@
+experimentName: CIFAR10_Hyperband
+
+searchSpaceFile: search_space.json
+
+trialCommand: python train_hyperband.py
+trialCodeDirectory: .
+
+trialConcurrency: 3
+maxTrialNumber: 30
+
+trainingService:
+  platform: local
+  useActiveGpu: true
+
+advisor:
+  name: Hyperband
+  classArgs:
+    optimize_mode: maximize
+    R: 9
+    eta: 3
+    exec_mode: serial

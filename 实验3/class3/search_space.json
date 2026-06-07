@@ -1,0 +1,7 @@
+{
+  "lr": {"_type": "loguniform", "_value": [1e-4, 5e-3]},
+  "batch_size": {"_type": "choice", "_value": [64, 128, 256, 512]},
+  "optimizer": {"_type": "choice", "_value": ["Adam", "SGD"]},
+  "num_conv_layers": {"_type": "choice", "_value": [3, 4]},
+  "dropout_rate": {"_type": "uniform", "_value": [0.2, 0.6]}
+}

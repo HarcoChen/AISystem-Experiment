@@ -1,0 +1,36 @@
+experimentName: CIFAR10_Hyperband
+
+searchSpace:
+  lr:
+    _type: loguniform
+    _value: [0.0001, 0.005]
+  batch_size:
+    _type: choice
+    _value: [64, 128, 256, 512]
+  optimizer:
+    _type: choice
+    _value: ["Adam", "SGD"]
+  num_conv_layers:
+    _type: choice
+    _value: [3, 4]
+  dropout_rate:
+    _type: uniform
+    _value: [0.2, 0.6]
+
+trialCommand: python3 train_hyperband.py
+trialCodeDirectory: .
+trialGpuNumber: 1
+trialConcurrency: 3
+maxTrialNumber: 30
+
+advisor:
+  name: Hyperband
+  classArgs:
+    optimize_mode: maximize
+    R: 9
+    eta: 3
+    exec_mode: serial
+
+trainingService:
+  platform: local
+  useActiveGpu: true

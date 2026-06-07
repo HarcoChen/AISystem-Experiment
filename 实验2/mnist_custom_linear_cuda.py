@@ -1,0 +1,264 @@
+# BSD 3-Clause License
+#
+# Copyright (c) 2017,
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+from __future__ import print_function
+import argparse
+import os
+import sys
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.tensorboard.writer import SummaryWriter
+from torch.autograd.function import FunctionCtx
+
+PROFILE_WAIT = 20
+PROFILE_WARMUP = 20
+PROFILE_ACTIVE = 30
+PROFILE_REPEAT = 1
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CUDA_EXAMPLE_DIR = os.path.join(SCRIPT_DIR, "cuda_example")
+if CUDA_EXAMPLE_DIR not in sys.path:
+    sys.path.insert(0, CUDA_EXAMPLE_DIR)
+try:
+    import linear_cuda_impl  # type: ignore
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "Cannot import linear_cuda_impl. Build it first:\n"
+        "cd class2/cuda_example && conda run -n ai_lab python setup_cuda.py build_ext --inplace"
+    ) from e
+
+
+class myLinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx: FunctionCtx, input, weight, bias):
+        input = input.contiguous()
+        weight = weight.contiguous()
+        bias = bias.contiguous()
+        ctx.save_for_backward(input, weight)
+        output = linear_cuda_impl.forward(input, weight, bias)
+        return output
+
+    @staticmethod
+    def backward(ctx: FunctionCtx, grad_output):  # pyright: ignore[reportIncompatibleMethodOverride]
+        input, weight = ctx.saved_tensors  # type: ignore
+        grad_output = grad_output.contiguous()
+        grad_input, grad_weight, _grad_bias = linear_cuda_impl.backward(grad_output, input, weight)
+        return grad_input, grad_weight, None
+
+
+class myLinear(nn.Module):
+    def __init__(self, input_features, output_features):
+        super(myLinear, self).__init__()
+        self.input_features = input_features
+        self.output_features = output_features
+        self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
+        self.register_buffer("bias", torch.zeros(output_features))
+        self.weight.data.uniform_(-0.1, 0.1)
+
+    def forward(self, input):
+        return myLinearFunction.apply(input, self.weight, self.bias)
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, 3, 1)
+        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+        self.dropout1 = nn.Dropout2d(0.25)
+        self.dropout2 = nn.Dropout2d(0.5)
+        self.fc1 = myLinear(9216, 128)
+        self.fc2 = myLinear(128, 10)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+        x = self.dropout1(x)
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.dropout2(x)
+        x = self.fc2(x)
+        output = F.log_softmax(x, dim=1)
+        return output
+
+
+def train(args, model, device, train_loader, optimizer, epoch, writer, profiler=None):
+    model.train()
+    loss_sum = 0.0
+    num_batches = 0
+    for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data.to(device), target.to(device)
+        optimizer.zero_grad()
+        output = model(data)
+        loss = F.nll_loss(output, target)
+        loss.backward()
+        optimizer.step()
+        loss_sum += loss.item()
+        num_batches += 1
+        if profiler is not None:
+            profiler.step()
+        if batch_idx % args.log_interval == 0:
+            print(
+                "Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
+                    epoch,
+                    batch_idx * len(data),
+                    len(train_loader.dataset),
+                    100.0 * batch_idx / len(train_loader),
+                    loss.item(),
+                )
+            )
+    avg_loss = loss_sum / num_batches if num_batches > 0 else 0.0
+    writer.add_scalar("train/loss_epoch", avg_loss, epoch)
+
+
+def test(model, device, test_loader, writer, epoch):
+    model.eval()
+    correct = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            pred = output.argmax(dim=1, keepdim=True)
+            correct += pred.eq(target.view_as(pred)).sum().item()
+
+    test_acc = 100.0 * correct / len(test_loader.dataset)
+    writer.add_scalar("test/accuracy", test_acc, epoch)
+
+    print("\nTest set: Accuracy: {}/{} ({:.0f}%)\n".format(correct, len(test_loader.dataset), test_acc))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PyTorch MNIST Example")
+    parser.add_argument("--batch-size", type=int, default=64, metavar="N", help="input batch size for training (default: 64)")
+    parser.add_argument("--test-batch-size", type=int, default=1000, metavar="N", help="input batch size for testing (default: 1000)")
+    parser.add_argument("--epochs", type=int, default=14, metavar="N", help="number of epochs to train (default: 14)")
+    parser.add_argument("--lr", type=float, default=1.0, metavar="LR", help="learning rate (default: 1.0)")
+    parser.add_argument("--gamma", type=float, default=0.7, metavar="M", help="Learning rate step gamma (default: 0.7)")
+    parser.add_argument("--no-cuda", action="store_true", default=False, help="disables CUDA training")
+    parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
+    parser.add_argument("--log-interval", type=int, default=10, metavar="N", help="how many batches to wait before logging training status")
+    parser.add_argument("--save-model", action="store_true", default=False, help="For Saving the current Model")
+    parser.add_argument("--multi-gpu", action="store_true", default=False, help="enable DataParallel when multiple GPUs are available")
+    args = parser.parse_args()
+
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    if not use_cuda:
+        raise RuntimeError("mnist_custom_linear_cuda.py requires CUDA. Please run on GPU without --no-cuda.")
+
+    torch.manual_seed(args.seed)
+    device = torch.device("cuda")
+
+    kwargs = {"num_workers": 1, "pin_memory": True}
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST(
+            "../data",
+            train=True,
+            download=True,
+            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]),
+        ),
+        batch_size=args.batch_size,
+        shuffle=True,
+        **kwargs,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST(
+            "../data",
+            train=False,
+            transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]),
+        ),
+        batch_size=args.test_batch_size,
+        shuffle=False,
+        **kwargs,
+    )
+
+    model = Net().to(device)
+    if args.multi_gpu and torch.cuda.device_count() > 1:
+        print(f"Using DataParallel on {torch.cuda.device_count()} GPUs")
+        model = nn.DataParallel(model)
+
+    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
+    writer = SummaryWriter("runs/mnist_custom_linear_cuda")
+    writer.add_text(
+        "run/config",
+        f"impl_platform=cuda_extension\n"
+        f"linear_op=custom_cuda_nobias\n"
+        f"activation_op=relu\n"
+        f"use_cuda={use_cuda}\n"
+        f"multi_gpu={args.multi_gpu}\n"
+        f"enable_profiler=True",
+        0,
+    )
+
+    profiler = None
+    if not hasattr(torch, "profiler"):
+        msg = "torch.profiler is not available in this torch version; profiler disabled."
+        print(msg)
+        writer.add_text("perf/profile_status", msg, 0)
+    else:
+        activities = [torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]
+        trace_dir = os.path.join(writer.log_dir, "profiler_traces")
+        os.makedirs(trace_dir, exist_ok=True)
+        schedule = torch.profiler.schedule(wait=PROFILE_WAIT, warmup=PROFILE_WARMUP, active=PROFILE_ACTIVE, repeat=PROFILE_REPEAT)
+        profiler = torch.profiler.profile(
+            activities=activities,
+            schedule=schedule,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(trace_dir),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=False,
+        )
+        profiler.__enter__()
+        writer.add_text("perf/profile_trace_dir", trace_dir, 0)
+        print(f"[Profiler] Enabled, traces -> {trace_dir}")
+
+    scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
+    try:
+        for epoch in range(1, args.epochs + 1):
+            train(args, model, device, train_loader, optimizer, epoch, writer, profiler=profiler)
+            test(model, device, test_loader, writer, epoch)
+            scheduler.step()
+    finally:
+        if profiler is not None:
+            profiler.__exit__(None, None, None)
+
+    if args.save_model:
+        torch.save(model.state_dict(), "mnist_cnn.pt")
+    writer.close()
+
+
+if __name__ == "__main__":
+    main()

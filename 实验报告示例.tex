@@ -1,0 +1,387 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{float}
+\geometry{a4paper,scale=0.8}
+\usepackage{listings}
+\usepackage{color}
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+\lstset{frame=tb,
+language=Python,
+aboveskip=3mm,
+belowskip=3mm,
+showstringspaces=false,
+columns=flexible,
+basicstyle={\small\ttfamily},
+numbers=left, % 设置行号位置，none表示不显示行号
+numberstyle=\tiny\color{gray},
+keywordstyle=\color{blue},
+commentstyle=\color{dkgreen},
+stringstyle=\color{mauve},
+breaklines=true,
+breakatwhitespace=true,
+tabsize=3
+}
+\title{实验一\hspace{2em}实验报告}
+\author{人工智能2402\hspace{1em}陈子硕}
+\usepackage[slantfont,boldfont]{xeCJK}
+\usepackage{fontspec}
+\usepackage{subcaption}
+\usepackage{setspace}
+\onehalfspacing
+\date{March 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{实验环境说明}
+本节说明实验所用的环境，我在我的个人笔记本上运行了程序。
+% 需要 \usepackage{booktabs}
+\begin{table}[htbp]
+\centering
+\caption{实验硬件环境}
+\label{tab:hardware_env}
+\begin{tabular}{p{0.30\linewidth} p{0.62\linewidth}}
+\toprule
+项目 & 配置 \\
+\midrule
+CPU & 13th Gen Intel(R) Core(TM) i5-13500HX \\
+CPU 核心/线程 & 14 核 / 20 线程（20 vCPU） \\
+GPU 型号与数量 & NVIDIA GeForce RTX 4060 Laptop GPU $\times 1$ \\
+GPU 显存 & 8188 MiB（约 8 GB） \\
+系统内存 & 31 GiB \\
+交换分区 & 14 GiB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{实验软件环境}
+\label{tab:software_env}
+\begin{tabular}{p{0.30\linewidth} p{0.62\linewidth}}
+\toprule
+项目 & 配置 \\
+\midrule
+操作系统 & Ubuntu 24.04.4 LTS \\
+Python & 3.10.20（Conda 环境） \\
+深度学习框架 & PyTorch 2.9.1+cu128 \\
+视觉库 & torchvision 0.24.1+cu128 \\
+CUDA（PyTorch Runtime） & 12.8 \\
+CUDA Toolkit（nvcc） & 13.2 \\
+cuDNN & 9.10.2（cudnn=91002） \\
+NumPy & 1.26.4 \\
+TensorBoard & 2.20.0 \\
+性能分析工具 & torch.profiler + Chrome 0.4.3 \\
+可视化工具 & TensorBoard（Scalars / Graph / Profile） \\
+\bottomrule
+\end{tabular}
+\end{table}
+\section{任务一：基准程序运行与理解}
+代码撰写在本机完成，尝试了使用ssh连接到服务器但服务器不稳定。
+因此代码的执行和训练都在本机完成，使用AI帮助数据处理和绘图。
+\subsection{实验超参数设定}
+考虑到4060-laptop的性能，我设置训练集batchsize为256，测试集batchsize为400；学习率lr设置为0.001；在第一个epoch内只跑10个batch用来收集性能开销数据，共跑6个epoch。
+\subsection{实验结果与分析}
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Loss_Test_xEpoch.png}
+\caption{测试损失随 Epoch 变化}
+\label{fig:loss-test-epoch}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Accuracy_Test_xEpoch.png}
+\caption{测试准确率随 Epoch 变化}
+\label{fig:acc-test-epoch}
+\end{subfigure}
+\caption{模型泛化性能指标}
+\label{fig:perf-metrics}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Time_Data_xEpoch.png}
+\caption{数据处理耗时随 Epoch 变化}
+\label{fig:time-data-epoch}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Time_Compute_xEpoch.png}
+\caption{计算耗时随 Epoch 变化}
+\label{fig:time-compute-epoch}
+\end{subfigure}
+\caption{训练开销分解}
+\label{fig:cost-breakdown}
+\end{figure}
+\paragraph{结论}
+由图~\ref{fig:perf-metrics} 可见，模型在 5 个 Epoch 内收敛稳定：测试准确率由 0.9849 提升至 0.9898（提升约 0.49 个百分点），测试损失由 0.0487 下降至 0.0331（下降约 31.99\%）。训练损失（按 batch 记录）由 2.3165 降至 0.0063，下降约 99.73%，说明优化过程有效。
+
+由图~\ref{fig:cost-breakdown} 可见，训练总耗时主要由\textbf{数据处理}环节主导。统计平均值表明：每个 Epoch 的数据处理时间约为 2.897 s，计算时间约为 0.313 s，总时间约为 3.267 s；数据处理时间占总耗时约 88.65\%，计算时间占比约 9.57\%。因此，在当前配置下，性能优化的优先方向应为数据加载与输入流水线（如 DataLoader 参数、数据预取和存储读取效率），其次再优化模型计算部分。
+\section{任务二: 训练过程进行可视化分析}
+\subsection{工具选择与功能使用}
+本阶段使用 TensorBoard 作为训练可视化工具，完成了以下功能：
+\begin{enumerate}
+    \item 标量记录：记录训练损失、测试损失、测试准确率，以及每轮数据处理/计算/总耗时。
+    \item 模型结构与计算图可视化：通过 `writer.add\_graph` 可视化网络结构。
+    \item 训练趋势可视化：导出并绘制损失曲线、准确率曲线和时间开销曲线
+\end{enumerate}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{images/截屏2026-03-20 17.47.36.png}
+    \caption{TensorBoard页面截图}
+    \label{fig:Tensorboard}
+\end{figure}
+\subsection{运行结果分析}
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Loss_Train_Epoch_xEpoch.png}
+\caption{每轮平均训练损失（Train Loss）}
+\label{fig:train-loss-epoch}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Loss_Test_xEpoch.png}
+\caption{测试损失（Test Loss）}
+\label{fig:test-loss-epoch}
+\end{subfigure}
+\caption{训练与测试损失曲线（按 Epoch）}
+\label{fig:loss-curves-epoch}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Accuracy_Test_xEpoch.png}
+\caption{测试准确率}
+\label{fig:test-acc-epoch}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{images/Loss_Train_xBatch.png}
+\caption{训练损失（每100个Batch记录一次）}
+\label{fig:train-loss-batch}
+\end{subfigure}
+\caption{准确率与批次级训练损失曲线}
+\label{fig:acc-and-batchloss}
+\end{figure}
+
+根据本次运行日志：
+\begin{enumerate}
+    \item 训练平均损失（Train Loss）：0.0998 -> 0.0351 -> 0.0227 -> 0.0154 -> 0.0126
+    \item 测试损失（Test Loss）：0.0411 -> 0.0357 -> 0.0328 -> 0.0343 -> 0.0505
+    \item 测试准确率（Test Accuracy）：`0.9875 -> 0.9882 -> 0.9897 -> 0.9897 ->0.9867
+\end{enumerate}
+\paragraph{收敛与泛化分析}
+由图~\ref{fig:train-loss-epoch}可见，训练损失单调下降，说明优化过程稳定、模型在训练集上持续收敛。测试损失在前 3 个 Epoch 明显下降，并在第 3 个 Epoch 达到较优水平；第 4 个 Epoch 出现回升，第 5 个 Epoch 有所恢复但未优于最优点。
+
+由图~\ref{fig:test-acc-epoch}可见，测试准确率在第 3 个 Epoch 达到峰值（$0.9902$），后续略有回落。结合训练损失继续下降而测试指标波动，可判断模型后期存在轻度过拟合倾向，但不属于严重过拟合，也不存在明显欠拟合。
+
+\paragraph{结论}
+综合本阶段可视化结果，模型在 Batch Size=256 条件下前期收敛正常，最佳泛化点出现在第 3 个 Epoch 附近。后续实验中可以结合Early Stopping或轻量正则化策略，以进一步抑制后期过拟合并稳定测试性能。
+\subsection{模型结构展示}
+使用TensorBoard Graph展示于图~\ref{fig:grid_show}，完全展开以直观的展示网络内部结构。
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{images/mnist_experiment_bs64.png}
+    \caption{Tensorboard导出的Graph，完全展开就很直白了}
+    \label{fig:grid_show}
+\end{figure}
+\section{任务三：对程序进行性能分析}
+这里我使用了Profiler，最初按照AI的建议使用了TensorBoard插件展示但是调试失败，查询Profiler文档发现3月初完全移除了对TensorBoard插件的支持，于是使用HTA工具（facebookresearch/HolisticTraceAnalysis）+profiler自带的性能分析进行分析
+\subsection{耗时分布比较}
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{images/newplot.png}
+        \caption{进程间耗时分解}
+        \label{fig:temporal_breakdown} 
+    \end{subfigure}
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{images/newplot-4.png}
+        \caption{空闲部分耗时分解}
+    \end{subfigure}
+    \caption{HTA导出的GPU耗时分析表}
+    \label{fig:time_breakdown}
+\end{figure}
+由图~\ref{fig:time_breakdown}可见，GPU计算时间反而不长，大部分时间都在Idle，等待CPU搬运数据，因此我进一步使用Profiler的工具，在最开始的10个batch内，采样CPU性能数据，结果如表~\ref{tab:cpu_profiling_breakdown}所示：
+\begin{table}[htbp]
+    \centering
+    \caption{CPU 端核心算子耗时分布及性能开销分析}
+    \label{tab:cpu_profiling_breakdown}
+    \begin{tabular}{lrrrr}
+        \toprule
+        \textbf{操作名称 } & \textbf{调用次数} & \textbf{Self CPU (\%)} & \textbf{Total CPU (\%)} & \textbf{总耗时 (ms)} \\
+        \midrule
+        SingleProcessDataLoaderIter & 11 & 37.97 & 57.24 & 366.42 \\
+        Runtime Module Loading & 96 & 17.86 & 17.86 & 114.31 \\
+        cudaLaunchKernel & 566 & 3.36 & 13.97 & 89.46 \\
+        aten::item & 5823 & 0.62 & 10.14 & 64.93 \\
+        cudaStreamSynchronize & 35 & 9.49 & 9.49 & 60.78 \\
+        aten::convolution\_backward & 22 & 1.56 & 7.17 & 45.91 \\
+        aten::to  & 19797 & 1.33 & 6.01 & 38.50 \\
+        \midrule
+        \multicolumn{5}{l}{\textit{汇总数据: Self CPU Total = 640.20 ms, Self CUDA Total = 84.19 ms}} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+\par
+CPU和GPU的时间倒挂可从两个方面解释：
+\begin{itemize}
+    \item 对于GPU，本身一个Batch就不大，我还额外安装了CUDNN以进一步优化卷积速度
+    \item 对于CPU，几乎没做优化，目前是单线程加载。
+\end{itemize}
+\subsection{算子性能分析}
+同样使用HTA工具，导出结果如图\ref{fig:Compution_time_breakdown}所示。
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{images/newplot-2.png}
+    \caption{Compution内各算子开销占比}
+    \label{fig:Compution_time_breakdown}
+\end{figure}
+\paragraph{结论}
+\begin{itemize}
+    \item 负责反向传播权重梯度计算的 wgrad 算子和 CuDNN 优化卷积内核为主要耗时来源。
+    \item 框架在进行数据格式调整以匹配 Ampere 显卡的 Tensor Core 要求，带来约 7\% 的额外计算开销。
+    \item 尽管内存算子在 GPU 内部执行占比仅 1.4\%，但其主要的 HtoD 拷贝动作是触发全局 80\% Idle 状态的重要原因。
+\end{itemize}
+\section{任务四：ResNet实现}
+\subsection{数据集构建}
+我采用了PyTorch官方的“蚂蚁与蜜蜂数据集”(hymenoptera\_data)，下载到本地后解压，在Resnet内构建Dataset类：
+\begin{lstlisting}
+class MyCustomDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.image_paths = [] # 图片的绝对路径
+        self.labels = []      # 标签
+        self.class_to_idx = {"ants":0,"bees":1}#映射到数字
+        # 遍历
+        for cls_name in self.class_to_idx.keys():
+            cls_folder = os.path.join(root_dir, cls_name)
+            for img_name in os.listdir(cls_folder):
+                # 只读取几种格式
+                if img_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    img_path = os.path.join(cls_folder, img_name)
+                    self.image_paths.append(img_path)
+                    self.labels.append(self.class_to_idx[cls_name])
+    def __len__(self):
+        return len(self.image_paths)
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        label = self.labels[idx]
+        
+        # 用 PIL 库读取图片，并强制转换为 RGB (黑白问题)
+        image = Image.open(img_path).convert('RGB')
+        
+        # 如果定义了预处理
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, label
+\end{lstlisting}
+\subsection{模型构建}
+\subsubsection{残差块构建}
+\paragraph{主干分支}
+主干分支采用2层3x3卷积，每经过一层做一次归一化；
+\paragraph{捷径分支}
+默认是直接传，若输入输出尺寸变化做一次1x1卷积再归一化来对齐维度。
+\subsubsection{前向传播路径}
+前向时把主干输出和捷径输出逐元素相加，再过一次 ReLU。学习 F(x)，最后输出为 ReLU(F(x)+x)
+\subsubsection{模型构建}
+按照当时的论文，先做卷积和最大池化以减少计算量，然后传到一个4层残差网。
+\subsection{超参数选择}
+train和val的bs都取32(数据集就不大)，lr取0.001，跑20个epoch
+\subsection{结果分析}
+最终准确率70.58\%，训练20个epoch大约30s
+\subsection{改变BS分析}
+分别取bs为8，32，64，结果如表~\ref{tab:batch_size_comparison}与图~\ref{fig:reset_compare}所示：
+\begin{table}[htbp]
+    \centering
+    \caption{不同 Batch Size 下的 ResNet-18 训练效率与验证集表现}
+    \label{tab:batch_size_comparison}
+    \begin{tabular}{lcccccc}
+        \toprule
+        \textbf{BS} & \textbf{平均耗时/轮 (s)} & \textbf{去首轮耗时 (s)} & \textbf{总耗时 (s)} & \textbf{最佳准确率 (\%)} & \textbf{达标轮数} & \textbf{最终准确率 (\%)} \\
+        \midrule
+        \textbf{8}  & 0.677 & 0.592 & 18.696 & 69.94 & 9  & 67.32 \\
+        \textbf{32} & 0.694 & 0.601 & 20.337 & 71.24 & 11 & \textbf{70.59} \\
+        \textbf{64} & 0.856 & 0.720 & 25.117 & \textbf{72.55} & 18 & 65.36 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{images/resnet_epoch_time_compare.png}
+        \caption{不同bs间时间比较}
+        \label{fig:resnet_diffbs_time} 
+    \end{subfigure}
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{images/resnet_val_accuracy_compare.png}
+        \caption{不同bs间准确率比较}
+    \end{subfigure}
+    \caption{不同bs间的训练时间于准确率比较}
+    \label{fig:reset_compare}
+\end{figure}
+\paragraph{结论}
+Batch size偏大时，泛化稳定性差，训练时间也会相对延长（受限于CPU）；
+Batch size偏小，梯度噪声太大，会有很高频的震荡，训练时间影响不大
+bs=32是一个相对较好的选择。
+\subsection{改变device分析}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{images/Time_epoch.png}
+    \caption{不同设备下，单Epoch训练时间图}
+    \label{fig:device_time}
+\end{figure}
+图~\ref{fig:device_time}中，上面是CPU，下面是GPU。GPU明显快于CPU。
+\begin{table}[htbp]
+    \centering
+    \caption{CPU 运行模式下 ResNet-18 核心算子耗时与内存分配排行 (Top 10)}
+    \label{tab:cpu_only_profiling}
+    % 请确保导言区包含 \usepackage{booktabs}
+    \begin{tabular}{lrrrrr}
+        \toprule
+        \textbf{操作名称} & \textbf{调用次数} & \textbf{Self CPU (\%)} & \textbf{Self耗时 (ms)} & \textbf{总耗时 (ms)} & \textbf{CPU 内存} \\
+        \midrule
+        aten::convolution\_backward & 20 & 49.83 & 861.50 & 885.46 & 538.72 MB \\
+        aten::mkldnn\_convolution & 20 & 26.20 & 452.90 & 453.61 & 606.38 MB \\
+        aten::native\_batch\_norm\_backward & 20 & 3.18 & 55.04 & 55.50 & 606.41 MB \\
+        aten::native\_batch\_norm & 20 & 3.01 & 51.99 & 52.70 & 606.41 MB \\
+        cudaHostAlloc  & 6 & 2.74 & 47.39 & 48.34 & -12.81 MB \\
+        aten::threshold\_backward  & 17 & 2.14 & 36.94 & 36.94 & 563.50 MB \\
+        aten::max\_pool2d\_with\_indices & 1 & 1.99 & 34.39 & 34.39 & 147.00 MB \\
+        aten::clamp\_min  & 17 & 1.58 & 27.38 & 27.38 & 563.50 MB \\
+        aten::add\_  & 160 & 1.26 & 21.73 & 22.19 & 96 B \\
+        autograd::ReluBackward0 & 17 & 1.23 & 21.34 & 58.47 & -563.50 MB \\
+        \midrule
+        \multicolumn{6}{l}{\textit{汇总数据: 采样周期内 Self CPU 总耗时 = 1.729 s}} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\paragraph{纯 CPU 训练环境下的计算瓶颈分析：}
+如表 \ref{tab:cpu_only_profiling} 所示，
+首先，运算负载高度集中于矩阵计算。\texttt{convolution\_backward} 与 \texttt{mkldnn\_convolution} 算子累计占据了超过 76\% 的 CPU 总计算时间，且反向传播耗时约为前向传播的两倍。\par
+其次，频繁的内存交互成为隐形负担。观察发现，前向卷积与BN（Batch Normalization）等操作在内存层级引发了高达 600 MB 级别的数据吞吐，表明在 CPU 计算密集的场景下，内存带宽同样面临严峻考验。
+\end{document}
